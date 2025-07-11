@@ -1,4 +1,4 @@
-# main.py (เวอร์ชันนักสืบ)
+# main.py (แก้ไขเรื่องการดาวน์โหลดรูปภาพ)
 
 import io
 import os
@@ -13,42 +13,27 @@ from linebot.v3.messaging import (
     ApiClient,
     MessagingApi,
     ReplyMessageRequest,
-    TextMessage
+    TextMessage,
+    MessagingApiBlob  # **(เพิ่ม import ใหม่)**
 )
 from linebot.v3.webhooks import (
     MessageEvent,
     ImageMessageContent
 )
 
-# =================================================================================
-# ส่วนที่ 1: การตั้งค่าและโหลดโมเดล (ส่วนนักสืบ)
-# =================================================================================
-
-print("🕵️  Starting Debug Mode...")
-
-# ดึงค่าจาก Environment Variables
-channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-channel_secret = os.getenv('LINE_CHANNEL_SECRET')
-
-# **(สำคัญ)** พิมพ์ค่าที่ได้รับออกมาใน Log เพื่อตรวจสอบ
-print(f"🕵️  Loaded Access Token: {channel_access_token}")
-print(f"🕵️  Loaded Channel Secret: {channel_secret}")
-
-
-# ตรวจสอบว่าค่าที่ได้รับมาถูกต้องหรือไม่
-if not channel_access_token or not channel_secret:
-    print("❌ CRITICAL ERROR: Environment variables are missing or empty!")
-    # ในกรณีนี้ เราจะปล่อยให้โปรแกรมหยุดทำงานไปเลย เพื่อให้เห็น Error ชัดๆ
-
-# ถ้าค่าถูกต้อง ให้ทำงานต่อ
-print("✅ Environment variables seem to be loaded. Initializing LINE SDK...")
-configuration = Configuration(access_token=channel_access_token)
-handler = WebhookHandler(channel_secret)
-
 # --- ส่วนที่เหลือของโค้ดเหมือนเดิม ---
 
 CONFIDENCE_THRESHOLD = 0.50
 app = FastAPI(title="API วิเคราะห์โรคส้มโอ")
+
+channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+
+if not channel_access_token or not channel_secret:
+    print("❌ CRITICAL ERROR: Environment variables are missing or empty!")
+
+configuration = Configuration(access_token=channel_access_token)
+handler = WebhookHandler(channel_secret)
 
 try:
     model = YOLO('best.pt')
@@ -70,6 +55,7 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return 'OK'
 
+
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
     if model is None:
@@ -77,9 +63,13 @@ def handle_image_message(event):
         return
 
     with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
+        # **(ส่วนที่แก้ไข)** เปลี่ยนตัวเรียกใช้ฟังก์ชันดาวน์โหลด
+        line_bot_blob_api = MessagingApiBlob(api_client) # ใช้ "นักดาวน์โหลด" คนใหม่
+        
         message_id = event.message.id
-        message_content = line_bot_api.get_message_content(message_id=message_id)
+        # เรียกใช้ฟังก์ชันดาวน์โหลดจาก "นักดาวน์โหลด" คนใหม่
+        message_content = line_bot_blob_api.get_message_content(message_id=message_id)
+        
         image = Image.open(io.BytesIO(message_content))
         results = model(image)
         
@@ -97,6 +87,8 @@ def handle_image_message(event):
         else:
             reply_text = "ผลการวิเคราะห์:\n- " + "\n- ".join(detections)
 
+        # ส่วนตอบกลับยังใช้ MessagingApi เหมือนเดิม
+        line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,

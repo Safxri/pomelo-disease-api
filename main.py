@@ -1,4 +1,4 @@
-# main.py (แก้ไขเรื่องการดาวน์โหลดรูปภาพ)
+# main.py (เพิ่มฟังก์ชันทักทาย)
 
 import io
 import os
@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from PIL import Image
 from ultralytics import YOLO
 
+# นำเข้า Library ของ LINE
 from linebot.v3.webhook import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -14,14 +15,15 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     TextMessage,
-    MessagingApiBlob  # **(เพิ่ม import ใหม่)**
+    MessagingApiBlob
 )
 from linebot.v3.webhooks import (
     MessageEvent,
-    ImageMessageContent
+    ImageMessageContent,
+    TextMessageContent  # **(เพิ่ม import ใหม่)**
 )
 
-# --- ส่วนที่เหลือของโค้ดเหมือนเดิม ---
+# --- ส่วนตั้งค่าและโหลดโมเดล (เหมือนเดิม) ---
 
 CONFIDENCE_THRESHOLD = 0.50
 app = FastAPI(title="API วิเคราะห์โรคส้มโอ")
@@ -42,6 +44,8 @@ except Exception as e:
     print(f"❌ Error loading model: {e}")
     model = None
 
+# --- ส่วน Webhook Endpoint (เหมือนเดิม) ---
+
 @app.post("/webhook")
 async def line_webhook(request: Request):
     signature = request.headers.get('X-Line-Signature')
@@ -55,19 +59,45 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return 'OK'
 
+# --- ส่วนจัดการข้อความ (ส่วนที่เพิ่มเติม) ---
+
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_text_message(event):
+    """
+    ฟังก์ชันใหม่! ที่จะทำงานเมื่อได้รับข้อความที่เป็น "ตัวอักษร"
+    """
+    text = event.message.text.strip() # .strip() เพื่อตัดช่องว่างหน้า-หลัง
+
+    # ตรวจสอบว่าข้อความที่ส่งมาคือ "สวัสดี" หรือไม่
+    if text == "สวัสดี":
+        reply_text = (
+            "สวัสดีครับ 🙏\n\n"
+            "ผมคือแชทบอทวิเคราะห์โรคส้มโอทับทิมสยาม "
+            "เพียงส่งรูปภาพใบหรือผลส้มโอที่สงสัยเข้ามาได้เลยครับ"
+        )
+        
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
+            )
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
+    """
+    ฟังก์ชันเดิม ที่ทำงานเมื่อได้รับ "รูปภาพ"
+    """
     if model is None:
         print("Error: Model not available.")
         return
 
     with ApiClient(configuration) as api_client:
-        # **(ส่วนที่แก้ไข)** เปลี่ยนตัวเรียกใช้ฟังก์ชันดาวน์โหลด
-        line_bot_blob_api = MessagingApiBlob(api_client) # ใช้ "นักดาวน์โหลด" คนใหม่
+        line_bot_blob_api = MessagingApiBlob(api_client)
         
         message_id = event.message.id
-        # เรียกใช้ฟังก์ชันดาวน์โหลดจาก "นักดาวน์โหลด" คนใหม่
         message_content = line_bot_blob_api.get_message_content(message_id=message_id)
         
         image = Image.open(io.BytesIO(message_content))
@@ -83,11 +113,10 @@ def handle_image_message(event):
                     detections.append(f"{class_name} (ความมั่นใจ: {confidence:.0%})")
         
         if not detections:
-            reply_text = "ไม่พบร่องรอยของโรคในภาพ หรือความมั่นใจต่ำกว่าเกณฑ์"
+            reply_text = "ไม่พบร่องรอยของโรคในภาพ หรือความมั่นใจต่ำกว่าเกณฑ์ครับ"
         else:
             reply_text = "ผลการวิเคราะห์:\n- " + "\n- ".join(detections)
 
-        # ส่วนตอบกลับยังใช้ MessagingApi เหมือนเดิม
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(
             ReplyMessageRequest(

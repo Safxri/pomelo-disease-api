@@ -1,12 +1,11 @@
-# main.py (ฉบับสมบูรณ์สำหรับ LINE Bot)
-
+# Library
 import io
 import os
 from fastapi import FastAPI, Request, HTTPException
 from PIL import Image
 from ultralytics import YOLO
 
-# นำเข้า Library ของ LINE
+
 from linebot.v3.webhook import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -21,28 +20,23 @@ from linebot.v3.webhooks import (
     ImageMessageContent
 )
 
-# --------------------------------------------------------------------------
-# ส่วนที่ 1: การตั้งค่าและโหลดโมเดล
-# --------------------------------------------------------------------------
-
 CONFIDENCE_THRESHOLD = 0.50
-
 app = FastAPI(
     title="API วิเคราะห์โรคส้มโอ",
     description="API สำหรับรับ Webhook จาก LINE และทำนายโรค",
     version="1.0"
 )
 
-# ดึงค่า Channel Access Token และ Channel Secret จาก Environment Variables
-# **คุณต้องไปตั้งค่านี้ในหน้า Settings ของ Render**
+
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN', None)
 channel_secret = os.getenv('LINE_CHANNEL_SECRET', None)
 
+# **(ส่วนที่แก้ไข)** ตรวจสอบว่ามีการตั้งค่าบน Render หรือไม่ แต่ไม่ต้องใส่ค่าจริงลงในโค้ด
 if channel_access_token is None or channel_secret is None:
-    print("❌ Error: LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET must be set.")
-    # ในกรณีที่ไม่ได้ตั้งค่า ให้ใช้ค่าสมมติเพื่อไม่ให้แอปพัง แต่จะทำงานไม่ถูกต้อง
-    channel_access_token = "vC4zbb62rQF0MhtikvV1iDjLg/Aa29UP52aixFuzcLtrfCmQLvW0kLxQmR4107TaMvl/O9dkljSh07cEUm/c9uVV+S5zgf2LPj6YzP+AxsdJEGzJM/j2JKhnxIpFDvognn+vG2o6w+kXMp9+5r66rAdB04t89/1O/w1cDnyilFU=" 
-    channel_secret = "a26b5ed7c45d1aecda85643c6e92d25a"
+    print("❌ Error: LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET must be set on Render's Environment Variables.")
+    # หยุดการทำงานส่วนนี้ถ้าไม่มีค่า เพื่อป้องกันข้อผิดพลาด
+    # เราจะปล่อยให้ตัวแปรเป็น None และปล่อยให้เกิด Error ตอนที่ LINE พยายามเชื่อมต่อ
+    # เพื่อให้เรารู้ว่าลืมตั้งค่าบน Render
 
 configuration = Configuration(access_token=channel_access_token)
 handler = WebhookHandler(channel_secret)
@@ -63,6 +57,10 @@ async def line_webhook(request: Request):
     """
     Endpoint ใหม่สำหรับรับข้อมูลจาก LINE โดยเฉพาะ
     """
+    # ตรวจสอบว่า Channel Secret ถูกตั้งค่าหรือไม่ก่อนใช้งาน
+    if channel_secret is None:
+        raise HTTPException(status_code=500, detail="LINE Channel Secret is not configured on the server.")
+
     signature = request.headers.get('X-Line-Signature')
     body = await request.body()
 
@@ -79,17 +77,22 @@ def handle_image_message(event):
     """
     ฟังก์ชันที่จะทำงานเมื่อได้รับข้อความที่เป็น "รูปภาพ"
     """
+    # ตรวจสอบว่าโมเดลและ Access Token พร้อมใช้งานหรือไม่
+    if model is None or channel_access_token is None:
+        print("Error: Model or Access Token not available.")
+        return # ไม่ทำอะไรต่อถ้าโมเดลหรือ token ไม่พร้อม
+
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
-        
+
         # 1. ดึง ID ของรูปภาพเพื่อไปดาวน์โหลด
         message_id = event.message.id
         message_content = line_bot_api.get_message_content(message_id=message_id)
-        
+
         # 2. นำรูปภาพมาวิเคราะห์ด้วยโมเดล
         image = Image.open(io.BytesIO(message_content))
         results = model(image)
-        
+
         # 3. จัดรูปแบบผลลัพธ์
         detections = []
         for result in results:
@@ -99,7 +102,7 @@ def handle_image_message(event):
                     class_id = int(box.cls)
                     class_name = model.names[class_id]
                     detections.append(f"{class_name} (ความมั่นใจ: {confidence:.0%})")
-        
+
         # 4. สร้างข้อความตอบกลับ
         if not detections:
             reply_text = "ไม่พบร่องรอยของโรคในภาพ หรือความมั่นใจต่ำกว่าเกณฑ์"

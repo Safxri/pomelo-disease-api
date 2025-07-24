@@ -1,4 +1,4 @@
-# main.py (แก้ไขการ import)
+# main.py (Corrected for latest library versions)
 
 import io
 import os
@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from PIL import Image
 from ultralytics import YOLO
 
-# (ส่วนที่แก้ไข) นำเข้า Library ของ LINE ให้ถูกต้อง
+# Corrected LINE SDK imports
 from linebot.v3.webhook import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -15,7 +15,7 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     TextMessage,
-    ImageSendMessage, # ตรวจสอบให้แน่ใจว่าบรรทัดนี้มีอยู่
+    ImageSendMessage,
     MessagingApiBlob
 )
 from linebot.v3.webhooks import (
@@ -25,16 +25,21 @@ from linebot.v3.webhooks import (
     FollowEvent
 )
 
-# --- ส่วนที่เหลือของโค้ดเหมือนเดิมทั้งหมด ---
-
+# --- App Setup ---
 CONFIDENCE_THRESHOLD = 0.50
 app = FastAPI(title="API วิเคราะห์โรคส้มโอ")
+
+# --- Environment Variables & LINE SDK Configuration ---
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+
 if not channel_access_token or not channel_secret:
     print("❌ CRITICAL ERROR: Environment variables are missing or empty!")
+
 configuration = Configuration(access_token=channel_access_token)
 handler = WebhookHandler(channel_secret)
+
+# --- Model Loading ---
 try:
     model = YOLO('best.pt')
     print("✅ Model loaded successfully!")
@@ -42,6 +47,7 @@ except Exception as e:
     print(f"❌ Error loading model: {e}")
     model = None
 
+# --- Webhook Endpoint ---
 @app.post("/webhook")
 async def line_webhook(request: Request):
     signature = request.headers.get('X-Line-Signature')
@@ -55,9 +61,12 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return 'OK'
 
+# --- Event Handlers ---
+
 @handler.add(FollowEvent)
 def handle_follow_event(event):
-    IMAGE_URL = "https://raw.githubusercontent.com/Safxri/pomelo-disease-api/main/S__43040785.jpg" # URL รูปภาพของคุณ
+    """Handles when a user adds the bot as a friend."""
+    IMAGE_URL = "https://raw.githubusercontent.com/Safxri/pomelo-disease-api/main/S__43040785.jpg" # Your image URL
     reply_text = (
         "สวัสดีครับ ขอบคุณที่เพิ่ม Pomelo Bot เป็นเพื่อน 🙏\n\n"
         "ผมคือผู้ช่วยวิเคราะห์โรคส้มโอทับทิมสยามเบื้องต้นครับ\n\n"
@@ -78,6 +87,7 @@ def handle_follow_event(event):
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
+    """Handles text messages from users."""
     text = event.message.text.strip().lower()
     reply_text = ""
     if text == "สวัสดี":
@@ -101,6 +111,7 @@ def handle_text_message(event):
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
+    """Handles image messages from users."""
     if model is None: return
     with ApiClient(configuration) as api_client:
         line_bot_blob_api = MessagingApiBlob(api_client)
@@ -108,6 +119,7 @@ def handle_image_message(event):
         message_content = line_bot_blob_api.get_message_content(message_id=message_id)
         image = Image.open(io.BytesIO(message_content))
         results = model(image)
+        
         unique_diseases = {}
         for result in results:
             for box in result.boxes:
@@ -120,6 +132,7 @@ def handle_image_message(event):
                             unique_diseases[class_name] = confidence
                     else:
                         unique_diseases[class_name] = confidence
+        
         if not unique_diseases:
             reply_text = "ไม่พบร่องรอยของโรคในภาพ หรือความมั่นใจต่ำกว่าเกณฑ์ครับ"
         else:
@@ -127,6 +140,7 @@ def handle_image_message(event):
             for disease, conf in unique_diseases.items():
                 detection_texts.append(f"{disease} (ความมั่นใจสูงสุด: {conf:.0%})")
             reply_text = "ผลการวิเคราะห์:\n- " + "\n- ".join(detection_texts)
+
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(
             ReplyMessageRequest(

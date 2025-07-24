@@ -1,4 +1,4 @@
-# main.py (อัปเดตข้อความต้อนรับเพื่อนใหม่)
+# main.py (เพิ่มการส่งรูปภาพใน Follow Event)
 
 import io
 import os
@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request, HTTPException
 from PIL import Image
 from ultralytics import YOLO
 
-# นำเข้า Library ของ LINE
 from linebot.v3.webhook import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -15,6 +14,7 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     TextMessage,
+    ImageSendMessage,  # **(เพิ่ม import ใหม่)**
     MessagingApiBlob
 )
 from linebot.v3.webhooks import (
@@ -25,19 +25,14 @@ from linebot.v3.webhooks import (
 )
 
 # --- ส่วนตั้งค่าและโหลดโมเดล (เหมือนเดิม) ---
-
 CONFIDENCE_THRESHOLD = 0.50
 app = FastAPI(title="API วิเคราะห์โรคส้มโอ")
-
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('LINE_CHANNEL_SECRET')
-
 if not channel_access_token or not channel_secret:
     print("❌ CRITICAL ERROR: Environment variables are missing or empty!")
-
 configuration = Configuration(access_token=channel_access_token)
 handler = WebhookHandler(channel_secret)
-
 try:
     model = YOLO('best.pt')
     print("✅ Model loaded successfully!")
@@ -46,7 +41,6 @@ except Exception as e:
     model = None
 
 # --- ส่วน Webhook Endpoint (เหมือนเดิม) ---
-
 @app.post("/webhook")
 async def line_webhook(request: Request):
     signature = request.headers.get('X-Line-Signature')
@@ -60,20 +54,24 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return 'OK'
 
-# --- ส่วนจัดการข้อความ (ส่วนที่ปรับปรุง) ---
+# --- ส่วนจัดการ Event จาก LINE (ส่วนที่ปรับปรุง) ---
 
 @handler.add(FollowEvent)
 def handle_follow_event(event):
-    """
-    ฟังก์ชันที่จะทำงานเมื่อมีคนแอดเพื่อนเข้ามาครั้งแรก
-    """
+    """ทำงานเมื่อมีคนแอดเพื่อนเข้ามาครั้งแรก และส่งรูปภาพ"""
+    
+    # **(สำคัญ!)** แก้ไข URL ตรงนี้เป็นลิงก์ที่คุณคัดลอกมาจาก GitHub
+    IMAGE_URL = "https://raw.githubusercontent.com/Safxri/pomelo-disease-api/main/S__43040785.jpg"
+
     reply_text = (
         "สวัสดีครับ ขอบคุณที่เพิ่ม Pomelo Bot เป็นเพื่อน 🙏\n\n"
         "ผมคือผู้ช่วยวิเคราะห์โรคส้มโอทับทิมสยามเบื้องต้นครับ\n\n"
-        "ความสามารถของผม:\n"
-        "- วิเคราะห์โรคเบื้องต้นจากรูปภาพใบหรือผลส้มโอ\n"
-        "- ให้ข้อมูลเกี่ยวกับโรคที่พบบ่อย เช่น โรคแคงเกอร์, หนอนชอนใบ\n\n"
         "หากต้องการเริ่มต้นใช้งาน สามารถพิมพ์ 'วิธีใช้' เพื่อดูคำแนะนำ หรือส่งรูปภาพเข้ามาได้เลยครับ!"
+    )
+
+    image_message = ImageSendMessage(
+        original_content_url=IMAGE_URL,
+        preview_image_url=IMAGE_URL 
     )
     
     with ApiClient(configuration) as api_client:
@@ -81,21 +79,21 @@ def handle_follow_event(event):
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)]
+                # ส่งทั้งข้อความและรูปภาพพร้อมกัน
+                messages=[image_message, TextMessage(text=reply_text)]
             )
         )
 
+# --- โค้ดส่วนที่เหลือเหมือนเดิมทั้งหมด ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     text = event.message.text.strip().lower()
     reply_text = ""
-
     if text == "สวัสดี":
         reply_text = (
             "สวัสดีครับ 🙏\n\n"
             "หากต้องการดูวิธีใช้งาน พิมพ์ 'วิธีใช้' ได้เลยครับ"
         )
-    
     elif text == "วิธีใช้":
         reply_text = (
             "**วิธีใช้งาน:**\n"
@@ -103,7 +101,6 @@ def handle_text_message(event):
             "2. ส่งรูปภาพนั้นเข้ามาในแชทนี้ได้เลย\n"
             "3. รอสักครู่... ผมจะวิเคราะห์และส่งผลลัพธ์กลับไปให้ครับ"
         )
-    
     if reply_text:
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
@@ -116,7 +113,6 @@ def handle_text_message(event):
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message(event):
-    # โค้ดส่วนนี้เหมือนเดิมทั้งหมด
     if model is None: return
     with ApiClient(configuration) as api_client:
         line_bot_blob_api = MessagingApiBlob(api_client)

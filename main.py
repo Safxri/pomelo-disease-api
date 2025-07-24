@@ -1,4 +1,4 @@
-# main.py (เพิ่มการส่งรูปภาพใน Follow Event)
+# main.py (แก้ไขการ import)
 
 import io
 import os
@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from PIL import Image
 from ultralytics import YOLO
 
+# (ส่วนที่แก้ไข) นำเข้า Library ของ LINE ให้ถูกต้อง
 from linebot.v3.webhook import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -14,7 +15,7 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     TextMessage,
-    ImageSendMessage,  # **(เพิ่ม import ใหม่)**
+    ImageSendMessage, # ตรวจสอบให้แน่ใจว่าบรรทัดนี้มีอยู่
     MessagingApiBlob
 )
 from linebot.v3.webhooks import (
@@ -24,7 +25,8 @@ from linebot.v3.webhooks import (
     FollowEvent
 )
 
-# --- ส่วนตั้งค่าและโหลดโมเดล (เหมือนเดิม) ---
+# --- ส่วนที่เหลือของโค้ดเหมือนเดิมทั้งหมด ---
+
 CONFIDENCE_THRESHOLD = 0.50
 app = FastAPI(title="API วิเคราะห์โรคส้มโอ")
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
@@ -40,7 +42,6 @@ except Exception as e:
     print(f"❌ Error loading model: {e}")
     model = None
 
-# --- ส่วน Webhook Endpoint (เหมือนเดิม) ---
 @app.post("/webhook")
 async def line_webhook(request: Request):
     signature = request.headers.get('X-Line-Signature')
@@ -54,46 +55,33 @@ async def line_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
     return 'OK'
 
-# --- ส่วนจัดการ Event จาก LINE (ส่วนที่ปรับปรุง) ---
-
 @handler.add(FollowEvent)
 def handle_follow_event(event):
-    """ทำงานเมื่อมีคนแอดเพื่อนเข้ามาครั้งแรก และส่งรูปภาพ"""
-    
-    # **(สำคัญ!)** แก้ไข URL ตรงนี้เป็นลิงก์ที่คุณคัดลอกมาจาก GitHub
-    IMAGE_URL = "https://raw.githubusercontent.com/Safxri/pomelo-disease-api/main/S__43040785.jpg"
-
+    IMAGE_URL = "https://raw.githubusercontent.com/Safxri/pomelo-disease-api/main/S__43040785.jpg" # URL รูปภาพของคุณ
     reply_text = (
         "สวัสดีครับ ขอบคุณที่เพิ่ม Pomelo Bot เป็นเพื่อน 🙏\n\n"
         "ผมคือผู้ช่วยวิเคราะห์โรคส้มโอทับทิมสยามเบื้องต้นครับ\n\n"
         "หากต้องการเริ่มต้นใช้งาน สามารถพิมพ์ 'วิธีใช้' เพื่อดูคำแนะนำ หรือส่งรูปภาพเข้ามาได้เลยครับ!"
     )
-
     image_message = ImageSendMessage(
         original_content_url=IMAGE_URL,
-        preview_image_url=IMAGE_URL 
+        preview_image_url=IMAGE_URL
     )
-    
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                # ส่งทั้งข้อความและรูปภาพพร้อมกัน
                 messages=[image_message, TextMessage(text=reply_text)]
             )
         )
 
-# --- โค้ดส่วนที่เหลือเหมือนเดิมทั้งหมด ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     text = event.message.text.strip().lower()
     reply_text = ""
     if text == "สวัสดี":
-        reply_text = (
-            "สวัสดีครับ 🙏\n\n"
-            "หากต้องการดูวิธีใช้งาน พิมพ์ 'วิธีใช้' ได้เลยครับ"
-        )
+        reply_text = "สวัสดีครับ 🙏\n\nหากต้องการดูวิธีใช้งาน พิมพ์ 'วิธีใช้' ได้เลยครับ"
     elif text == "วิธีใช้":
         reply_text = (
             "**วิธีใช้งาน:**\n"

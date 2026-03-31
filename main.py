@@ -23,6 +23,16 @@ from linebot.v3.webhooks import (
     TextMessageContent,
     FollowEvent
 )
+DISEASE_INFO = {
+    "Canker": {
+        "th_name": "โรคแคงเกอร์",
+        "advice": "ตัดแต่งกิ่งที่เป็นโรคไปเผาทำลาย และพ่นสารคอปเปอร์ออกซีคลอไรด์"
+    },
+    "Thrips": {
+        "th_name": "เพลี้ยไฟ",
+        "advice": "พ่นสารกลุ่มสไปนีโทแรม (Spinetoram) ในช่วงใบอ่อน"
+    }
+}
 
 # --- ส่วนตั้งค่าและโหลดโมเดล (เหมือนเดิม) ---
 CONFIDENCE_THRESHOLD = 0.50
@@ -105,6 +115,7 @@ def handle_image_message(event):
         message_id = event.message.id
         message_content = line_bot_blob_api.get_message_content(message_id=message_id)
         image = Image.open(io.BytesIO(message_content))
+        image.thumbnail((640, 640))
         results = model(image)
         unique_diseases = {}
         for result in results:
@@ -119,12 +130,12 @@ def handle_image_message(event):
                     else:
                         unique_diseases[class_name] = confidence
         if not unique_diseases:
-            reply_text = "ไม่พบร่องรอยของโรคในภาพ หรือความมั่นใจต่ำกว่าเกณฑ์ครับ"
+            reply_text = "ไม่พบร่องรอยของโรคในภาพครับ ลองถ่ายให้ชัดขึ้นนะครับ"
         else:
-            detection_texts = []
+            reply_text = "✅ ผลการวิเคราะห์:\n"
             for disease, conf in unique_diseases.items():
-                detection_texts.append(f"{disease} (ความมั่นใจสูงสุด: {conf:.0%})")
-            reply_text = "ผลการวิเคราะห์:\n- " + "\n- ".join(detection_texts)
+                info = DISEASE_INFO.get(disease, {"th_name": disease, "advice": "โปรดปรึกษาผู้เชี่ยวชาญ"})
+                reply_text += f"\n📌 {info['th_name']} (มั่นใจ {conf:.0%})\n💡 วิธีแก้: {info['advice']}\n"
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message(
             ReplyMessageRequest(
